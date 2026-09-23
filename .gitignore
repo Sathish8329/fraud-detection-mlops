@@ -5,3 +5,7 @@ models/*.pkl
 .env
 mlflow.db
 mlruns/
+# Airflow generated files
+airflow/logs/
+airflow/config/
+airflow/plugins/

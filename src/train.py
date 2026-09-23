@@ -1,19 +1,55 @@
 import os
+import argparse
+
 import mlflow
 import mlflow.data
 import pandas as pd
+
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
+
 import joblib
 
 
 # --------------------------------------------------
-# 1. Create a small sample fraud dataset
+# 1. Read command-line parameters
+# --------------------------------------------------
+
+parser = argparse.ArgumentParser(description="Fraud Detection Training")
+
+parser.add_argument(
+    "--n-estimators",
+    type=int,
+    default=300
+)
+
+parser.add_argument(
+    "--random-state",
+    type=int,
+    default=42
+)
+
+parser.add_argument(
+    "--test-size",
+    type=float,
+    default=0.30
+)
+
+args = parser.parse_args()
+
+n_estimators = args.n_estimators
+random_state = args.random_state
+test_size = args.test_size
+
+
+# --------------------------------------------------
+# 2. Load dataset
 # --------------------------------------------------
 
 df = pd.read_csv("data/transactions.csv")
+
 dataset = mlflow.data.from_pandas(
     df,
     source="data/transactions.csv",
@@ -22,8 +58,10 @@ dataset = mlflow.data.from_pandas(
 )
 
 mlflow.set_experiment("Fraud Detection")
+
+
 # --------------------------------------------------
-# 2. Convert country into a number
+# 3. Convert country into a number
 # --------------------------------------------------
 
 encoder = LabelEncoder()
@@ -32,7 +70,7 @@ df["country"] = encoder.fit_transform(df["country"])
 
 
 # --------------------------------------------------
-# 3. Separate features and label
+# 4. Separate features and label
 # --------------------------------------------------
 
 X = df.drop("fraud", axis=1)
@@ -40,11 +78,9 @@ y = df["fraud"]
 
 
 # --------------------------------------------------
-# 4. Split data into training and testing
+# 5. Split data
 # --------------------------------------------------
-n_estimators = 150
-random_state = 32
-test_size = 0.10
+
 X_train, X_test, y_train, y_test = train_test_split(
     X,
     y,
@@ -53,64 +89,161 @@ X_train, X_test, y_train, y_test = train_test_split(
     stratify=y
 )
 
+
+# --------------------------------------------------
+# 6. Start MLflow run
+# --------------------------------------------------
+
 with mlflow.start_run():
 
+    mlflow.log_input(
+        dataset,
+        context="training"
+    )
+
     # --------------------------------------------------
-    # 5. Create the ML model
+    # 7. Create model
     # --------------------------------------------------
-    
-    mlflow.log_input(dataset, context="training")
+
     model = RandomForestClassifier(
         n_estimators=n_estimators,
         random_state=random_state
     )
 
-    mlflow.log_param("n_estimators", n_estimators)
-    mlflow.log_param("random_state", random_state)
-    mlflow.log_param("test_size", test_size)
     # --------------------------------------------------
-    # 6. Train the model
+    # 8. Log parameters
     # --------------------------------------------------
 
-    model.fit(X_train, y_train)
+    mlflow.log_param(
+        "n_estimators",
+        n_estimators
+    )
+
+    mlflow.log_param(
+        "random_state",
+        random_state
+    )
+
+    mlflow.log_param(
+        "test_size",
+        test_size
+    )
 
     # --------------------------------------------------
-    # 7. Test the model
+    # 9. Train model
     # --------------------------------------------------
 
-    predictions = model.predict(X_test)
+    model.fit(
+        X_train,
+        y_train
+    )
 
-    accuracy = accuracy_score(y_test, predictions)
-    mlflow.log_metric("accuracy", accuracy)
+    # --------------------------------------------------
+    # 10. Prediction
+    # --------------------------------------------------
+
+    predictions = model.predict(
+        X_test
+    )
+
+    # --------------------------------------------------
+    # 11. Evaluation
+    # --------------------------------------------------
+
+    accuracy = accuracy_score(
+        y_test,
+        predictions
+    )
+
+    mlflow.log_metric(
+        "accuracy",
+        accuracy
+    )
+
+    # --------------------------------------------------
+    # 12. Log model to MLflow
+    # --------------------------------------------------
 
     model_info = mlflow.sklearn.log_model(
         model,
-        name = "fraud_model"
+        name="fraud_model",
+        skops_trusted_types=["sklearn.tree._tree.Tree"]
     )
 
-    mlflow.register_model(
-    model_uri=model_info.model_uri,
-    name="FraudDetectionModel"
+    # --------------------------------------------------
+    # 13. Register model
+    # --------------------------------------------------
+
+    # mlflow.register_model(
+    #     model_uri=model_info.model_uri,
+    #     name="FraudDetectionModel"
+    # )
+
+    # --------------------------------------------------
+# 13. Register model
+# --------------------------------------------------
+
+    registered_model = mlflow.register_model(
+        model_uri=model_info.model_uri,
+        name="FraudDetectionModel"
     )
-    print("\n===== Fraud Detection Model v1 =====")
-    print(f"Accuracy: {accuracy:.2f}")
+    run_id = mlflow.active_run().info.run_id
 
-    print("\nClassification Report:")
-    print(classification_report(y_test, predictions))
+    model_version = registered_model.version
 
-    # --------------------------------------------------
-    # 8. Save the trained model
-    # --------------------------------------------------
+    training_result = {
+      "run_id": run_id,
+      "accuracy": accuracy,
+      "model_version": model_version
+    }
 
     os.makedirs("models", exist_ok=True)
+
+    with open("models/training_result.json", "w") as f:
+        import json
+        json.dump(training_result, f, indent=2)
+
+    print("\nTraining result saved to:")
+    print("models/training_result.json")
+
+    # --------------------------------------------------
+    # 14. Print results
+    # --------------------------------------------------
+
+    print("\n===================================")
+    print("Fraud Detection Training")
+    print("===================================")
+
+    print(f"n_estimators : {n_estimators}")
+    print(f"random_state : {random_state}")
+    print(f"test_size    : {test_size}")
+    print(f"Accuracy     : {accuracy:.2f}")
+
+    print("\nClassification Report:")
+    print(
+        classification_report(
+            y_test,
+            predictions
+        )
+    )
+
+    # --------------------------------------------------
+    # 15. Save local model
+    # --------------------------------------------------
+
+    os.makedirs(
+        "models",
+        exist_ok=True
+    )
 
     joblib.dump(
         {
             "model": model,
             "encoder": encoder
         },
-        "models/fraud_model_v1.pkl"
+        "models/fraud_model.pkl"
     )
 
     print("\nModel saved to:")
-    print("models/fraud_model_v1.pkl")
+    print("models/fraud_model.pkl")
+
