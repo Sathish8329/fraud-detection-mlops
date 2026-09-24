@@ -2,4 +2,3 @@
     remote = s3storage
 ['remote "s3storage"']
     url = s3://fraud-detection-mlops-sathish-2026
-    profile = AdministratorAccess-601506390950

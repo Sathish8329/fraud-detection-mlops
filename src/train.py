@@ -1,5 +1,7 @@
+
 import os
 import argparse
+from contextlib import nullcontext
 
 import mlflow
 import mlflow.data
@@ -17,7 +19,9 @@ import joblib
 # 1. Read command-line parameters
 # --------------------------------------------------
 
-parser = argparse.ArgumentParser(description="Fraud Detection Training")
+parser = argparse.ArgumentParser(
+    description="Fraud Detection Training"
+)
 
 parser.add_argument(
     "--n-estimators",
@@ -37,11 +41,18 @@ parser.add_argument(
     default=0.30
 )
 
+parser.add_argument(
+    "--skip-mlflow",
+    action="store_true",
+    help="Train and save the model without MLflow"
+)
+
 args = parser.parse_args()
 
 n_estimators = args.n_estimators
 random_state = args.random_state
 test_size = args.test_size
+skip_mlflow = args.skip_mlflow
 
 
 # --------------------------------------------------
@@ -50,27 +61,38 @@ test_size = args.test_size
 
 df = pd.read_csv("data/transactions.csv")
 
-dataset = mlflow.data.from_pandas(
-    df,
-    source="data/transactions.csv",
-    name="fraud-transactions",
-    targets="fraud"
-)
 
-mlflow.set_experiment("Fraud Detection")
+# --------------------------------------------------
+# 3. Configure MLflow only when required
+# --------------------------------------------------
+
+dataset = None
+
+if not skip_mlflow:
+
+    dataset = mlflow.data.from_pandas(
+        df,
+        source="data/transactions.csv",
+        name="fraud-transactions",
+        targets="fraud"
+    )
+
+    mlflow.set_experiment("Fraud Detection")
 
 
 # --------------------------------------------------
-# 3. Convert country into a number
+# 4. Convert country into a number
 # --------------------------------------------------
 
 encoder = LabelEncoder()
 
-df["country"] = encoder.fit_transform(df["country"])
+df["country"] = encoder.fit_transform(
+    df["country"]
+)
 
 
 # --------------------------------------------------
-# 4. Separate features and label
+# 5. Separate features and label
 # --------------------------------------------------
 
 X = df.drop("fraud", axis=1)
@@ -78,7 +100,7 @@ y = df["fraud"]
 
 
 # --------------------------------------------------
-# 5. Split data
+# 6. Split data
 # --------------------------------------------------
 
 X_train, X_test, y_train, y_test = train_test_split(
@@ -91,18 +113,31 @@ X_train, X_test, y_train, y_test = train_test_split(
 
 
 # --------------------------------------------------
-# 6. Start MLflow run
+# 7. Start MLflow run when required
 # --------------------------------------------------
 
-with mlflow.start_run():
+mlflow_context = (
+    mlflow.start_run()
+    if not skip_mlflow
+    else nullcontext()
+)
 
-    mlflow.log_input(
-        dataset,
-        context="training"
-    )
+with mlflow_context:
 
     # --------------------------------------------------
-    # 7. Create model
+    # 8. Log dataset to MLflow
+    # --------------------------------------------------
+
+    if not skip_mlflow:
+
+        mlflow.log_input(
+            dataset,
+            context="training"
+        )
+
+
+    # --------------------------------------------------
+    # 9. Create model
     # --------------------------------------------------
 
     model = RandomForestClassifier(
@@ -110,27 +145,31 @@ with mlflow.start_run():
         random_state=random_state
     )
 
-    # --------------------------------------------------
-    # 8. Log parameters
-    # --------------------------------------------------
-
-    mlflow.log_param(
-        "n_estimators",
-        n_estimators
-    )
-
-    mlflow.log_param(
-        "random_state",
-        random_state
-    )
-
-    mlflow.log_param(
-        "test_size",
-        test_size
-    )
 
     # --------------------------------------------------
-    # 9. Train model
+    # 10. Log parameters to MLflow
+    # --------------------------------------------------
+
+    if not skip_mlflow:
+
+        mlflow.log_param(
+            "n_estimators",
+            n_estimators
+        )
+
+        mlflow.log_param(
+            "random_state",
+            random_state
+        )
+
+        mlflow.log_param(
+            "test_size",
+            test_size
+        )
+
+
+    # --------------------------------------------------
+    # 11. Train model
     # --------------------------------------------------
 
     model.fit(
@@ -138,16 +177,18 @@ with mlflow.start_run():
         y_train
     )
 
+
     # --------------------------------------------------
-    # 10. Prediction
+    # 12. Prediction
     # --------------------------------------------------
 
     predictions = model.predict(
         X_test
     )
 
+
     # --------------------------------------------------
-    # 11. Evaluation
+    # 13. Evaluation
     # --------------------------------------------------
 
     accuracy = accuracy_score(
@@ -155,59 +196,75 @@ with mlflow.start_run():
         predictions
     )
 
-    mlflow.log_metric(
-        "accuracy",
-        accuracy
-    )
+
+    if not skip_mlflow:
+
+        mlflow.log_metric(
+            "accuracy",
+            accuracy
+        )
+
 
     # --------------------------------------------------
-    # 12. Log model to MLflow
+    # 14. Log model and register model in MLflow
     # --------------------------------------------------
 
-    model_info = mlflow.sklearn.log_model(
-        model,
-        name="fraud_model",
-        skops_trusted_types=["sklearn.tree._tree.Tree"]
-    )
+    run_id = None
+    model_version = None
+
+    if not skip_mlflow:
+
+        model_info = mlflow.sklearn.log_model(
+            model,
+            name="fraud_model",
+            skops_trusted_types=[
+                "sklearn.tree._tree.Tree"
+            ]
+        )
+
+        registered_model = mlflow.register_model(
+            model_uri=model_info.model_uri,
+            name="FraudDetectionModel"
+        )
+
+        run_id = mlflow.active_run().info.run_id
+        model_version = registered_model.version
+
 
     # --------------------------------------------------
-    # 13. Register model
+    # 15. Save training result
     # --------------------------------------------------
-
-    # mlflow.register_model(
-    #     model_uri=model_info.model_uri,
-    #     name="FraudDetectionModel"
-    # )
-
-    # --------------------------------------------------
-# 13. Register model
-# --------------------------------------------------
-
-    registered_model = mlflow.register_model(
-        model_uri=model_info.model_uri,
-        name="FraudDetectionModel"
-    )
-    run_id = mlflow.active_run().info.run_id
-
-    model_version = registered_model.version
 
     training_result = {
-      "run_id": run_id,
-      "accuracy": accuracy,
-      "model_version": model_version
+        "run_id": run_id,
+        "accuracy": accuracy,
+        "model_version": model_version
     }
 
-    os.makedirs("models", exist_ok=True)
+    os.makedirs(
+        "models",
+        exist_ok=True
+    )
 
-    with open("models/training_result.json", "w") as f:
+    with open(
+        "models/training_result.json",
+        "w"
+    ) as f:
+
         import json
-        json.dump(training_result, f, indent=2)
+
+        json.dump(
+            training_result,
+            f,
+            indent=2
+        )
 
     print("\nTraining result saved to:")
     print("models/training_result.json")
 
+
     # --------------------------------------------------
-    # 14. Print results
+    # 16. Print results
     # --------------------------------------------------
 
     print("\n===================================")
@@ -220,6 +277,7 @@ with mlflow.start_run():
     print(f"Accuracy     : {accuracy:.2f}")
 
     print("\nClassification Report:")
+
     print(
         classification_report(
             y_test,
@@ -227,8 +285,9 @@ with mlflow.start_run():
         )
     )
 
+
     # --------------------------------------------------
-    # 15. Save local model
+    # 17. Save local model
     # --------------------------------------------------
 
     os.makedirs(
@@ -247,3 +306,12 @@ with mlflow.start_run():
     print("\nModel saved to:")
     print("models/fraud_model.pkl")
 
+
+    # --------------------------------------------------
+    # 18. CI mode message
+    # --------------------------------------------------
+
+    if skip_mlflow:
+
+        print("\nMLflow tracking skipped.")
+        print("CI model artifact created successfully.")
