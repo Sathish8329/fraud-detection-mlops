@@ -1,0 +1,12 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY requirements-model.txt .
+
+RUN pip install --no-cache-dir -r requirements-model.txt
+
+COPY src/inference.py src/inference.py
+COPY models/fraud_model.pkl models/fraud_model.pkl
+
+CMD ["python", "src/inference.py"]
