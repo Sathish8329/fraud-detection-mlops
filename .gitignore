@@ -9,3 +9,6 @@ mlruns/
 airflow/logs/
 airflow/config/
 airflow/plugins/
+
+models/*.pkl
+models/training_result.json
