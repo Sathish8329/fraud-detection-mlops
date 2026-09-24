@@ -22,6 +22,11 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::601506390950:role/GitHubActions-FraudModel-ECR
           aws-region: ap-south-1
+      - name: Install DVC
+        run: pip install "dvc[s3]"
+
+      - name: Pull dataset with DVC
+        run: dvc pull
 
       - name: Login to Amazon ECR
         id: login-ecr
