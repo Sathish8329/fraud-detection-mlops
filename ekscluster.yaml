@@ -1,0 +1,19 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: fraud-mlops
+  region: ap-south-1
+  version: "1.34"
+
+managedNodeGroups:
+  - name: fraud-mlops-ng
+    instanceType: t3.medium
+    desiredCapacity: 2
+    minSize: 2
+    maxSize: 2
+    volumeSize: 30
+    privateNetworking: true
+    iam:
+      withAddonPolicies:
+        imageBuilder: true

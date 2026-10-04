@@ -27,6 +27,12 @@ jobs:
 
       - name: Pull dataset with DVC
         run: dvc pull
+      
+      - name: Install training dependencies
+        run: pip install -r requirements-train.txt
+
+      - name: Train model for Docker image
+        run: python src/train.py --skip-mlflow
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -36,7 +42,7 @@ jobs:
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: fraud-model
-          IMAGE_TAG: ${{ github.sha }}
+          IMA GE_TAG: ${{ github.sha }}
         run: |
           docker build \
             -f Dockerfile.model \
