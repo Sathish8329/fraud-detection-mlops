@@ -1,4 +1,4 @@
-name: Build and Push Fraud Model
+name: Fraud Model CI
 
 on:
   push:
@@ -7,48 +7,63 @@ on:
 
 permissions:
   id-token: write
-  contents: read
+  contents: write
 
 jobs:
-  build-and-push:
+  build-test-push:
     runs-on: ubuntu-latest
 
     steps:
+
+      # 1. Checkout source code
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # 2. Configure AWS
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::601506390950:role/GitHubActions-FraudModel-ECR
-          aws-region: ap-south-1
+          role-to-assume: arn:aws:iam::218201720377:role/GitHubActions-FraudModel-ECR
+          aws-region: ap-south-2
+
+      # 3. Install DVC
       - name: Install DVC
         run: pip install "dvc[s3]"
 
+      # 4. Pull versioned dataset
       - name: Pull dataset with DVC
         run: dvc pull
-      
+
+      # 5. Install training dependencies
       - name: Install training dependencies
         run: pip install -r requirements-train.txt
 
-      - name: Train model for Docker image
+      # 6. Train model
+      - name: Train model
         run: python src/train.py --skip-mlflow
 
+      # 7. Evaluate model
+      - name: Model quality gate
+        run: python src/evaluate.py
+
+      # 8. Login to ECR
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      # 9. Build Docker image
       - name: Build Docker image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: fraud-model
-          IMA GE_TAG: ${{ github.sha }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
           docker build \
             -f Dockerfile.model \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
             .
 
+      # 10. Push Docker image
       - name: Push Docker image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
