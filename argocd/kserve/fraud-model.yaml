@@ -1,0 +1,38 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: fraud-model
+  namespace: default
+  annotations:
+    serving.kserve.io/deploymentMode: Standard
+spec:
+  predictor:
+    serviceAccountName: fraud-model-sa
+    containers:
+      - name: fraud-model
+        image: 218201720377.dkr.ecr.ap-south-2.amazonaws.com/fraud-model:api-3.0
+        ports:
+          - containerPort: 8080
+            protocol: TCP
+        resources:
+          requests:
+            cpu: "1"
+            memory: 2Gi
+          limits:
+            cpu: "1"
+            memory: 2Gi
+
+  transformer:
+    containers:
+      - name: fraud-transformer
+        image: 218201720377.dkr.ecr.ap-south-2.amazonaws.com/fraud-model:transformer-4.0
+        ports:
+          - containerPort: 8080
+            protocol: TCP
+        resources:
+          requests:
+            cpu: "1"
+            memory: 2Gi
+          limits:
+            cpu: "1"
+            memory: 2Gi
